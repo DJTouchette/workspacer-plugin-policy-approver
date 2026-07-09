@@ -1,0 +1,47 @@
+{
+  "id": "djtouchette.policy-approver",
+  "name": "Policy Approver",
+  "apiVersion": "1",
+  "server": {
+    "command": "node",
+    "args": [
+      "server.js"
+    ],
+    "port": 9203,
+    "health": "/health"
+  },
+  "panes": [
+    {
+      "type": "djtouchette.policy-approver",
+      "title": "Policy Approver",
+      "icon": "\u2696\ufe0f",
+      "scope": "global",
+      "path": "/"
+    }
+  ],
+  "settings": [
+    {
+      "key": "autoApproveReadonly",
+      "label": "Auto-approve read-only tools",
+      "type": "boolean",
+      "default": true,
+      "help": "Approve Read/Grep/Glob etc. without prompting."
+    },
+    {
+      "key": "blockPatterns",
+      "label": "Block patterns (comma-sep)",
+      "type": "string",
+      "default": "rm -rf,git push --force,:(){",
+      "help": "Bash substrings that are always blocked."
+    }
+  ],
+  "capabilities": [
+    "sessions.snapshot",
+    "claude.approve",
+    "claude.gate",
+    "notifications.post"
+  ],
+  "consumes": [
+    "agent.state_changed"
+  ]
+}
