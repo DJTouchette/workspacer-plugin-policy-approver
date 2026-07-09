@@ -6,7 +6,13 @@ A [workspacer](https://github.com/DJTouchette/workspacer) hub plugin (sidecar). 
 
 ## What it does
 
-On `agent.state_changed` → approval, reads the pending tool (`sessions.snapshot`) and decides by policy: auto-`claude.approve` read-only tools and edits inside the agent's cwd, hard-block `rm -rf` / `git push --force`. Turns the fleet from babysit-every-prompt into supervise-by-exception.
+Supervise-by-exception. When an agent blocks on a permission prompt (`agent.state_changed` with `mode === 'approval'`), it reads the pending tool with `sessions.snapshot` and applies a policy:
+
+- **Auto-approve read-only tools** — `Read`, `Grep`, `Glob`, `LS`, `NotebookRead` are approved with `claude.approve` (`decision: 'yes'`) when `autoApproveReadonly` is on.
+- **Hard-hold dangerous mutations** — for `Bash`, `Write`, `Edit`, `MultiEdit`, the pending input (bash command, target file path, edited content, plus the serialized input as a fallback) is scanned for any `blockPatterns` substring. On a match it calls `claude.gate` (`on: true`) to hold the parked decision and `notifications.post`s a warning naming the matched pattern.
+- **Everything else is deferred** — left for the human to decide.
+
+Each parked prompt is acted on at most once (keyed by session + tool + timestamp), so repeated `agent.state_changed` events don't double-fire. Turns the fleet from babysit-every-prompt into supervise-by-exception.
 
 ## Bus wiring
 
@@ -14,8 +20,8 @@ On `agent.state_changed` → approval, reads the pending tool (`sessions.snapsho
 - **Calls capabilities:** `sessions.snapshot`, `claude.approve`, `claude.gate`, `notifications.post`
 - **Emits:** —
 - **Settings:**
-- `autoApproveReadonly` (boolean) — Approve Read/Grep/Glob etc. without prompting.
-- `blockPatterns` (string) — Bash substrings that are always blocked.
+- `autoApproveReadonly` (boolean, default `true`) — Auto-approve read-only tools (`Read`/`Grep`/`Glob`/`LS`/`NotebookRead`) without prompting.
+- `blockPatterns` (string, default `rm -rf,git push --force,:(){`) — Comma-separated substrings; a mutating tool whose input contains any of them is held for the human.
 
 ## Run it
 
@@ -26,7 +32,7 @@ On `agent.state_changed` → approval, reads the pending tool (`sessions.snapsho
 
 ## Implement
 
-Edit `server.js` → `onEvent(event)`. Subscribed topics arrive there; use `call('method', params)` for capabilities and `publish('command.x', data)` for commands. `settings` holds the host-injected config above.
+The policy lives in `server.js` → `onEvent(event)`. It filters for `agent.state_changed` events with `mode === 'approval'`, calls `sessions.snapshot` to read `pendingApproval` (`toolName` + `toolInput`), then routes to `claude.approve`, `claude.gate` + `notifications.post`, or no-op per the rules above. `settings` holds the host-injected config (`autoApproveReadonly`, `blockPatterns`); block patterns are parsed by splitting on commas and trimming.
 
 ## Layout
 
