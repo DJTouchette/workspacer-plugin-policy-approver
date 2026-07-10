@@ -2,7 +2,7 @@
 
 Auto-approve safe tools, hard-block dangerous ones.
 
-A [workspacer](https://github.com/DJTouchette/workspacer) hub plugin (sidecar). **Runnable scaffold** — it loads, connects to the hub bus, and shows live activity; the real logic is stubbed with clear TODOs.
+A [workspacer](https://github.com/DJTouchette/workspacer) hub plugin (sidecar). Implemented and exercised end-to-end against a headless workspacer hub.
 
 ## What it does
 
@@ -32,7 +32,7 @@ Each parked prompt is acted on at most once (keyed by session + tool + timestamp
 
 ## Implement
 
-The policy lives in `server.js` → `onEvent(event)`. It filters for `agent.state_changed` events with `mode === 'approval'`, calls `sessions.snapshot` to read `pendingApproval` (`toolName` + `toolInput`), then routes to `claude.approve`, `claude.gate` + `notifications.post`, or no-op per the rules above. `settings` holds the host-injected config (`autoApproveReadonly`, `blockPatterns`); block patterns are parsed by splitting on commas and trimming.
+The policy lives in `server.js` → `onEvent(event)`. It filters for `agent.state_changed` events with `mode === 'approval'`, calls `sessions.snapshot` to read the parked tool, then routes to `claude.approve`, `claude.gate` + `notifications.post`, or no-op per the rules above. `settings` holds the host-injected config (`autoApproveReadonly`, `blockPatterns`); block patterns are parsed by splitting on commas and trimming. Both snapshot provider shapes are supported: the desktop app's `pendingApproval` (`toolName`/`toolInput`) and the headless brain's claudemon passthrough (`pending: { kind: 'approval', tool, raw: { tool_name, tool_input } }`), so the policy works with or without the GUI running.
 
 ## Layout
 

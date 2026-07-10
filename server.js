@@ -131,6 +131,24 @@ function matchedPattern(text) {
   return null;
 }
 
+// Accept both snapshot providers' shapes for the parked approval:
+// - desktop app:      { pendingApproval: { toolName, toolInput, timestamp } }
+// - headless brain:   { pending: { kind:'approval', tool, summary,
+//                        raw: { tool_name, tool_input, … } } }  (claudemon)
+function pendingApprovalOf(snap) {
+  if (!snap || typeof snap !== 'object') return null;
+  const pa = snap.pendingApproval;
+  if (pa && pa.toolName) return pa;
+  const p = snap.pending;
+  if (p && String(p.kind || '').toLowerCase() === 'approval') {
+    const raw = p.raw && typeof p.raw === 'object' ? p.raw : {};
+    const toolName = p.tool || raw.tool_name;
+    if (!toolName) return null;
+    return { toolName, toolInput: raw.tool_input, timestamp: raw.timestamp || 0 };
+  }
+  return null;
+}
+
 async function onEvent(event) {
   const data = event && event.data ? event.data : {};
   // React only to agents that just entered a blocking approval prompt.
@@ -145,11 +163,11 @@ async function onEvent(event) {
     log('snapshot failed for ' + sessionId + ': ' + e.message);
     return;
   }
-  const pending = snap && snap.pendingApproval;
-  if (!pending || !pending.toolName) return; // nothing parked (or already resolved)
+  const parked = pendingApprovalOf(snap);
+  if (!parked || !parked.toolName) return; // nothing parked (or already resolved)
 
-  const toolName = pending.toolName;
-  const key = sessionId + '|' + toolName + '|' + (pending.timestamp || '');
+  const toolName = parked.toolName;
+  const key = sessionId + '|' + toolName + '|' + (parked.timestamp || '');
   if (handled.has(key)) return; // already decided this exact parked prompt
   markHandled(key);
 
@@ -170,7 +188,7 @@ async function onEvent(event) {
 
   // 2) Hard-hold mutating tools whose input matches a block pattern.
   if (MUTATING_TOOLS.has(toolName)) {
-    const hit = matchedPattern(searchableInput(pending.toolInput));
+    const hit = matchedPattern(searchableInput(parked.toolInput));
     if (hit) {
       try {
         // Enable the approval gate so the parked PreToolUse decision is held
@@ -215,8 +233,7 @@ const server = http.createServer((req, res) => {
     + ' · subscribed to ' + (TOPICS.join(', ') || '(nothing)') + '</p>'
     + '<pre style="font-size:.7rem;color:var(--wks-text-faint,#777);white-space:pre-wrap">'
     + (recent.map(escapeHtml).join('\n') || 'waiting for events…') + '</pre>'
-    + '<p style="color:var(--wks-text-faint,#777);font-size:.7rem">Scaffold — edit '
-    + '<code>server.js</code> (onEvent) to implement.</p>');
+);
 });
 function escapeHtml(s) { return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
 server.listen(PORT, '127.0.0.1', () => log('pane on http://127.0.0.1:' + PORT));
