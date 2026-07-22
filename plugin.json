@@ -2,6 +2,7 @@
   "id": "djtouchette.policy-approver",
   "name": "Policy Approver",
   "apiVersion": "1",
+  "version": "1.0.0",
   "server": {
     "command": "node",
     "args": [
