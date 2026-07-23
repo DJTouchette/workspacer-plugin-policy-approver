@@ -46,6 +46,9 @@ const MUTATING_TOOLS = new Set(['Bash', 'Write', 'Edit', 'MultiEdit']);
 
 // Settings (from the plugin SDK / manifest defaults).
 const autoApproveReadonly = settings.autoApproveReadonly !== false; // default true
+// Silent audit trail of routine auto-approvals in the notification center
+// (history-only, never a toast). Default OFF — it's chatty by nature.
+const auditTrail = settings.auditTrail === true;
 const blockPatterns = String(
   settings.blockPatterns != null ? settings.blockPatterns : 'rm -rf,git push --force,:(){',
 )
@@ -60,6 +63,32 @@ const handled = new Set();
 function markHandled(key) {
   handled.add(key);
   if (handled.size > 500) handled.delete(handled.values().next().value);
+}
+
+// Per-session auto-approval counter (for the audit-trail entry). Bounded.
+const approvalCounts = new Map();
+function bumpApprovals(sessionId) {
+  const n = (approvalCounts.get(sessionId) || 0) + 1;
+  approvalCounts.set(sessionId, n);
+  if (approvalCounts.size > 200) approvalCounts.delete(approvalCounts.keys().next().value);
+  return n;
+}
+
+function basename(p) {
+  if (!p || typeof p !== 'string') return '';
+  const parts = p.replace(/[\\/]+$/, '').split(/[\\/]/);
+  return parts[parts.length - 1] || p;
+}
+
+// Short human description of what was blocked: the bash command or the target
+// file, truncated so the notification body stays readable.
+function blockedSubject(toolInput) {
+  if (!toolInput || typeof toolInput !== 'object') return '';
+  const s =
+    (typeof toolInput.command === 'string' && toolInput.command) ||
+    (typeof toolInput.file_path === 'string' && toolInput.file_path) ||
+    '';
+  return s.length > 140 ? s.slice(0, 140) + '…' : s;
 }
 
 // Pull the searchable text out of a tool's input for block-pattern matching:
@@ -146,6 +175,28 @@ async function onEvent(event) {
         reason: 'policy-approver: read-only tool ' + toolName,
       });
       log('approved read-only ' + toolName + ' for ' + sessionId);
+      // Optional silent audit trail: one history-only entry per session
+      // (keyed, so a burst of approvals holds a single slot with a running
+      // count instead of stacking). notify.post is fire-and-forget publish;
+      // silent:true means no toast and no OS notification, ever.
+      if (auditTrail) {
+        try {
+          const n = bumpApprovals(sessionId);
+          wks.publish('notify.post', {
+            title: 'Auto-approved ' + toolName,
+            body:
+              n + ' auto-approval' + (n === 1 ? '' : 's') + ' this session in ' +
+              (data.cwd || snap.cwd || 'agent') + ' (latest: ' + toolName + ')',
+            level: 'info',
+            source: 'plugin:' + manifest.id,
+            sessionId,
+            key: 'policy-approver:audit:' + sessionId,
+            silent: true,
+          });
+        } catch (e) {
+          log('audit notify.post failed: ' + e.message);
+        }
+      }
     } catch (e) {
       log('approve failed for ' + sessionId + ': ' + e.message);
     }
@@ -164,16 +215,20 @@ async function onEvent(event) {
         log('gate failed for ' + sessionId + ': ' + e.message);
       }
       try {
+        // Important + actionable → notifications.post (bell + toast + OS).
+        // sessionId makes the notification click-to-jump to the blocked agent;
+        // key makes repeated blocks on the same session replace their slot.
+        const agentLabel = basename(data.cwd || snap.cwd || '') || sessionId.slice(0, 8);
+        const subject = blockedSubject(parked.toolInput);
         await wks.call('notifications.post', {
-          title: 'Policy Approver blocked ' + toolName,
+          title: 'Blocked ' + toolName + ' for ' + agentLabel,
           body:
-            'Held ' +
-            toolName +
-            ' in ' +
-            (data.cwd || snap.cwd || 'agent') +
-            ' — matched blocked pattern "' +
-            hit +
-            '". Review before allowing.',
+            'Held ' + toolName + (subject ? ' — ' + subject : '') +
+            ' — matched blocked pattern "' + hit + '". Review before allowing.',
+          level: 'error',
+          source: 'plugin:' + manifest.id,
+          sessionId,
+          key: 'policy-approver:block:' + sessionId,
         });
       } catch (e) {
         log('notify failed for ' + sessionId + ': ' + e.message);

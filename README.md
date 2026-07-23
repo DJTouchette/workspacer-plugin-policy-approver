@@ -14,14 +14,20 @@ Supervise-by-exception. When an agent blocks on a permission prompt (`agent.stat
 
 Each parked prompt is acted on at most once (keyed by session + tool + timestamp), so repeated `agent.state_changed` events don't double-fire. Turns the fleet from babysit-every-prompt into supervise-by-exception.
 
+## Notifications
+
+- **Hard-block** → a `notifications.post` with `level: "error"` titled *"Blocked \<tool\> for \<agent\>"*, the blocked command/file and the matched pattern in the body, and the agent's `sessionId` as the click target — clicking jumps straight to the blocked agent. Keyed per session, so repeated blocks on the same agent replace one notification slot instead of stacking.
+- **Routine auto-approvals never toast.** With the `auditTrail` setting on (default **off**), each approval publishes a *silent* `notify.post` entry (history-only in the notification center, no toast, no OS notification) keyed per session with a running approval count.
+
 ## Bus wiring
 
 - **Subscribes to:** `agent.state_changed`
 - **Calls capabilities:** `sessions.snapshot`, `claude.approve`, `claude.gate`, `notifications.post`
-- **Emits:** —
+- **Emits:** `notify.post` (silent audit-trail entries, only when `auditTrail` is on)
 - **Settings:**
 - `autoApproveReadonly` (boolean, default `true`) — Auto-approve read-only tools (`Read`/`Grep`/`Glob`/`LS`/`NotebookRead`) without prompting.
 - `blockPatterns` (string, default `rm -rf,git push --force,:(){`) — Comma-separated substrings; a mutating tool whose input contains any of them is held for the human.
+- `auditTrail` (boolean, default `false`) — Keep a silent per-session notification-center entry for routine auto-approvals (history only, never a toast).
 
 ## Run it
 

@@ -2,7 +2,7 @@
   "id": "djtouchette.policy-approver",
   "name": "Policy Approver",
   "apiVersion": "1",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "server": {
     "command": "node",
     "args": [
@@ -34,6 +34,13 @@
       "type": "string",
       "default": "rm -rf,git push --force,:(){",
       "help": "Bash substrings that are always blocked."
+    },
+    {
+      "key": "auditTrail",
+      "label": "Audit trail of auto-approvals",
+      "type": "boolean",
+      "default": false,
+      "help": "Keep a silent per-session entry in the notification center for routine auto-approvals (history only, never a toast)."
     }
   ],
   "capabilities": [
@@ -41,6 +48,9 @@
     "claude.approve",
     "claude.gate",
     "notifications.post"
+  ],
+  "emits": [
+    "notify.post"
   ],
   "consumes": [
     "agent.state_changed"
